@@ -1,0 +1,118 @@
+name: QA Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        type: string
+      staging_url:
+        required: true
+        type: string
+      staging_api_url:
+        required: false
+        type: string
+        default: ""
+      production_url:
+        required: true
+        type: string
+      notify_email:
+        required: true
+        type: string
+      repo:
+        required: true
+        type: string
+      staging_branch:
+        required: false
+        type: string
+        default: staging
+      production_branch:
+        required: false
+        type: string
+        default: main
+    secrets:
+      openai_api_key:
+        required: true
+      gmail_user:
+        required: true
+      gmail_app_password:
+        required: true
+      gh_token:
+        required: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout QA agent
+        uses: actions/checkout@v4
+        with:
+          repository: JeromeIbanez/temujin-qa-agent
+          path: .qa-agent
+          token: ${{ secrets.gh_token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install QA agent dependencies
+        run: pip install -r .qa-agent/requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Get git diff
+        id: diff
+        run: |
+          DIFF=$(git diff origin/${{ inputs.production_branch }}...HEAD 2>/dev/null || echo "")
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Wait for staging to be ready
+        run: |
+          echo "Waiting for staging to be live..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ inputs.staging_url }} || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Staging is ready."
+              exit 0
+            fi
+            echo "Attempt $i: staging returned $STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "Staging did not become ready in time."
+          exit 1
+
+      - name: Run Playwright e2e tests (if present)
+        continue-on-error: true
+        run: |
+          if [ -d "tests/e2e" ]; then
+            pytest tests/e2e/ --base-url=${{ inputs.staging_url }} -v || true
+          else
+            echo "No e2e tests found, skipping."
+          fi
+
+      - name: Run QA orchestrator
+        env:
+          STAGING_URL: ${{ inputs.staging_url }}
+          STAGING_API_URL: ${{ inputs.staging_api_url }}
+          PRODUCTION_URL: ${{ inputs.production_url }}
+          NOTIFY_EMAIL: ${{ inputs.notify_email }}
+          APP_NAME: ${{ inputs.app_name }}
+          GITHUB_REPO: ${{ inputs.repo }}
+          STAGING_BRANCH: ${{ inputs.staging_branch }}
+          PRODUCTION_BRANCH: ${{ inputs.production_branch }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          GIT_DIFF: ${{ steps.diff.outputs.diff }}
+          OPENAI_API_KEY: ${{ secrets.openai_api_key }}
+          GMAIL_USER: ${{ secrets.gmail_user }}
+          GMAIL_APP_PASSWORD: ${{ secrets.gmail_app_password }}
+          GH_TOKEN: ${{ secrets.gh_token }}
+        run: python .qa-agent/scripts/orchestrate.py
