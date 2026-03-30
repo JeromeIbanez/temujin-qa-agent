@@ -101,6 +101,13 @@ def send_approval_request(
         <p style="color:grey;font-size:12px">
           To reject: close the pull request at {pr_url}
         </p>
+        <hr style="margin-top:24px">
+        <p style="color:grey;font-size:12px">
+          <strong>Help the QA agent learn:</strong> If this review was unnecessary,
+          add the label <code>qa-false-positive</code> to the pull request before merging.
+          If a change was auto-deployed and caused an issue, add <code>qa-false-negative</code>.
+          These labels are used to improve future classifications.
+        </p>
         """,
     )
 

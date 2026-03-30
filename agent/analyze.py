@@ -3,7 +3,9 @@ AI-powered diff analysis.
 Reads the git diff and classifies the change as simple or complex,
 with a human-readable summary and reasoning.
 """
+import json
 import os
+
 from openai import OpenAI
 
 SIMPLE = "simple"
@@ -34,7 +36,7 @@ Respond with valid JSON only:
   "classification": "simple" or "complex",
   "summary": "1-2 sentence plain English summary of what changed",
   "reasoning": "1-2 sentence explanation of why you classified it this way",
-  "risk_areas": ["list", "of", "specific", "concerns"] // empty list if simple
+  "risk_areas": ["list", "of", "specific", "concerns"]
 }"""
 
 
@@ -49,7 +51,6 @@ def analyze_diff(diff: str) -> dict:
             "risk_areas": [],
         }
 
-    # Trim very large diffs to stay within token limits
     if len(diff) > 12000:
         diff = diff[:12000] + "\n\n[diff truncated for length]"
 
@@ -63,5 +64,4 @@ def analyze_diff(diff: str) -> dict:
         temperature=0.2,
     )
 
-    import json
     return json.loads(response.choices[0].message.content)

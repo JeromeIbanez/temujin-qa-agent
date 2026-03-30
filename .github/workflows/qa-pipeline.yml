@@ -67,6 +67,20 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
+      - name: Read repo QA config (optional)
+        id: qa_config
+        run: |
+          if [ -f ".qa-agent.yml" ]; then
+            echo "Found .qa-agent.yml — loading repo config."
+            CONFIG=$(cat .qa-agent.yml)
+          else
+            echo "No .qa-agent.yml found — using defaults."
+            CONFIG=""
+          fi
+          echo "config<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONFIG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Get git diff
         id: diff
         run: |
@@ -111,6 +125,7 @@ jobs:
           PRODUCTION_BRANCH: ${{ inputs.production_branch }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           GIT_DIFF: ${{ steps.diff.outputs.diff }}
+          AGENT_CONFIG: ${{ steps.qa_config.outputs.config }}
           OPENAI_API_KEY: ${{ secrets.openai_api_key }}
           GMAIL_USER: ${{ secrets.gmail_user }}
           GMAIL_APP_PASSWORD: ${{ secrets.gmail_app_password }}
