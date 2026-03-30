@@ -36,7 +36,7 @@ def main():
     staging_branch = os.environ.get("STAGING_BRANCH", "staging")
     production_branch = os.environ.get("PRODUCTION_BRANCH", "main")
     commit_msg = os.environ.get("COMMIT_MESSAGE", "No commit message")
-    diff = os.environ.get("GIT_DIFF", "")
+    commit_sha = os.environ.get("COMMIT_SHA", "")
     gh_token = os.environ["GH_TOKEN"]
 
     print(f"[QA] Starting pipeline for {app_name}")
@@ -48,7 +48,22 @@ def main():
     smoke = run_smoke(staging_url)
     print(json.dumps(smoke, indent=2))
 
-    # ── Step 2: AI diff analysis ─────────────────────────────────────────
+    # ── Step 2: Fetch diff via GitHub API ────────────────────────────────
+    print("[QA] Fetching diff via GitHub API...")
+    gh = Github(gh_token)
+    repo = gh.get_repo(repo_name)
+    try:
+        comparison = repo.compare(production_branch, staging_branch)
+        diff = "\n".join(
+            f"--- {f.filename}\n{f.patch or ''}"
+            for f in comparison.files
+            if f.patch
+        )
+    except Exception as e:
+        print(f"[QA] Could not fetch diff: {e}. Using commit message only.")
+        diff = f"Commit: {commit_msg}"
+
+    # ── Step 3: AI diff analysis ─────────────────────────────────────────
     print("[QA] Analyzing diff with AI...")
     analysis = analyze_diff(diff)
     print(json.dumps(analysis, indent=2))
@@ -73,8 +88,6 @@ def main():
     # ── Step 4: Simple → auto-merge ──────────────────────────────────────
     if classification == SIMPLE:
         print("[QA] Change classified as SIMPLE. Auto-merging to production.")
-        gh = Github(gh_token)
-        repo = gh.get_repo(repo_name)
         staging_ref = repo.get_branch(staging_branch)
         repo.merge(production_branch, staging_ref.commit.sha, f"Auto-deploy: {commit_msg}")
         print("[QA] Merged successfully.")
@@ -89,8 +102,6 @@ def main():
     # ── Step 5: Complex → create PR + email ──────────────────────────────
     else:
         print("[QA] Change classified as COMPLEX. Creating PR for review.")
-        gh = Github(gh_token)
-        repo = gh.get_repo(repo_name)
         pr = repo.create_pull(
             title=f"[QA] Deploy to production: {commit_msg}",
             body=f"**Summary:** {summary}\n\n**Why review needed:** {reasoning}\n\n"
