@@ -35,7 +35,7 @@ def run(staging_url: str) -> dict:
     check("Frontend loads", base)
     if api_url:
         check("API health", f"{api_url}/health", json_key="status")
-        check("API projects endpoint", f"{api_url}/api/v1/projects")
+        check("Auth guard active on protected endpoints", f"{api_url}/api/v1/projects", expected_status=401)
 
     return {"passed": passed, "results": results}
 
