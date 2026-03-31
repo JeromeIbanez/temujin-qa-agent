@@ -39,6 +39,14 @@ def main():
     commit_msg = os.environ.get("COMMIT_MESSAGE", "No commit message")
     gh_token = os.environ["GH_TOKEN"]
 
+    # Short title: first line only, max 72 chars
+    _first_line = commit_msg.splitlines()[0] if commit_msg else "No commit message"
+    pr_title = (
+        f"[QA] Deploy to production: {_first_line[:72]}…"
+        if len(_first_line) > 72
+        else f"[QA] Deploy to production: {_first_line}"
+    )
+
     print(f"[QA] Starting pipeline for {app_name}")
     print(f"[QA] Commit: {commit_msg}")
 
@@ -110,7 +118,7 @@ def main():
         if existing_prs:
             pr = existing_prs[0]
             pr.edit(
-                title=f"[QA] Deploy to production: {commit_msg}",
+                title=pr_title,
                 body=(
                     f"**Summary:** {summary}\n\n"
                     f"**Why review needed:** {reasoning}\n\n"
@@ -121,7 +129,7 @@ def main():
             print(f"[QA] Updated existing PR: {pr.html_url}")
         else:
             pr = repo.create_pull(
-                title=f"[QA] Deploy to production: {commit_msg}",
+                title=pr_title,
                 body=(
                     f"**Summary:** {summary}\n\n"
                     f"**Why review needed:** {reasoning}\n\n"
