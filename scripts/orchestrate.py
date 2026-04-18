@@ -93,12 +93,37 @@ def main():
         )
         sys.exit(1)
 
-    # ── Step 5: Simple → auto-merge ──────────────────────────────────────────
+    # ── Step 5: Simple → PR + immediate merge ────────────────────────────────
     if classification == SIMPLE:
-        print("[QA] Change classified as SIMPLE. Auto-merging to production.")
-        staging_ref = repo.get_branch(staging_branch)
-        repo.merge(production_branch, staging_ref.commit.sha, f"Auto-deploy: {commit_msg}")
-        print("[QA] Merged successfully.")
+        print("[QA] Change classified as SIMPLE. Creating PR and merging to production.")
+        existing_prs = list(repo.get_pulls(
+            state="open",
+            head=f"{repo.owner.login}:{staging_branch}",
+            base=production_branch,
+        ))
+        if existing_prs:
+            pr = existing_prs[0]
+            pr.edit(
+                title=pr_title,
+                body=(
+                    f"**Auto-deploy (SIMPLE)**\n\n"
+                    f"**Summary:** {summary}\n\n"
+                    f"QA passed. Classified as SIMPLE — merging automatically."
+                ),
+            )
+        else:
+            pr = repo.create_pull(
+                title=pr_title,
+                body=(
+                    f"**Auto-deploy (SIMPLE)**\n\n"
+                    f"**Summary:** {summary}\n\n"
+                    f"QA passed. Classified as SIMPLE — merging automatically."
+                ),
+                head=staging_branch,
+                base=production_branch,
+            )
+        pr.merge(merge_method="merge", commit_message=f"Auto-deploy: {commit_msg}")
+        print(f"[QA] PR {pr.html_url} merged successfully.")
         send_auto_deployed(
             to=notify_email,
             app_name=app_name,
