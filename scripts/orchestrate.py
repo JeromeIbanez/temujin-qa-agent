@@ -12,7 +12,9 @@ Flow:
 import json
 import os
 import sys
+import time
 
+import requests
 from github import Github
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -93,9 +95,9 @@ def main():
         )
         sys.exit(1)
 
-    # ── Step 5: Simple → PR + immediate merge ────────────────────────────────
+    # ── Step 5: Simple → PR + auto-merge (merges once CI checks pass) ──────────
     if classification == SIMPLE:
-        print("[QA] Change classified as SIMPLE. Creating PR and merging to production.")
+        print("[QA] Change classified as SIMPLE. Creating PR with auto-merge enabled.")
         existing_prs = list(repo.get_pulls(
             state="open",
             head=f"{repo.owner.login}:{staging_branch}",
@@ -108,7 +110,7 @@ def main():
                 body=(
                     f"**Auto-deploy (SIMPLE)**\n\n"
                     f"**Summary:** {summary}\n\n"
-                    f"QA passed. Classified as SIMPLE — merging automatically."
+                    f"QA passed. Classified as SIMPLE — will merge to production automatically once CI passes."
                 ),
             )
         else:
@@ -117,13 +119,13 @@ def main():
                 body=(
                     f"**Auto-deploy (SIMPLE)**\n\n"
                     f"**Summary:** {summary}\n\n"
-                    f"QA passed. Classified as SIMPLE — merging automatically."
+                    f"QA passed. Classified as SIMPLE — will merge to production automatically once CI passes."
                 ),
                 head=staging_branch,
                 base=production_branch,
             )
-        pr.merge(merge_method="merge", commit_message=f"Auto-deploy: {commit_msg}")
-        print(f"[QA] PR {pr.html_url} merged successfully.")
+        _enable_auto_merge(pr.node_id, gh_token)
+        print(f"[QA] PR ready: {pr.html_url}")
         send_auto_deployed(
             to=notify_email,
             app_name=app_name,
@@ -179,6 +181,41 @@ def main():
         )
 
     print("[QA] Pipeline complete.")
+
+
+def _enable_auto_merge(pr_node_id: str, gh_token: str) -> None:
+    """Enable auto-merge on a PR via GitHub GraphQL API.
+
+    Uses MERGE method so it respects branch protection required status checks —
+    the PR merges automatically once all checks pass, never before.
+    """
+    query = """
+    mutation($prId: ID!) {
+      enablePullRequestAutoMerge(input: {
+        pullRequestId: $prId,
+        mergeMethod: MERGE
+      }) {
+        pullRequest {
+          autoMergeRequest { enabledAt }
+        }
+      }
+    }
+    """
+    resp = requests.post(
+        "https://api.github.com/graphql",
+        json={"query": query, "variables": {"prId": pr_node_id}},
+        headers={
+            "Authorization": f"Bearer {gh_token}",
+            "Accept": "application/vnd.github+json",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if "errors" in data:
+        print(f"[QA] Warning: could not enable auto-merge: {data['errors']}")
+    else:
+        print("[QA] Auto-merge enabled — PR will merge once CI checks pass.")
 
 
 if __name__ == "__main__":
